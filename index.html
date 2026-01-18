@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voice Chat</title>
+</head>
+<body>
+
+<h2>Simple Voice Chat</h2>
+
+<button onclick="startChat()">Connect Microphone</button>
+
+<script>
+let localStream;
+let peerConnection;
+let socket = new WebSocket("ws://" + window.location.host);
+
+const config = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+};
+
+async function startChat() {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    peerConnection = new RTCPeerConnection(config);
+
+    localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.ontrack = event => {
+        let audio = document.createElement("audio");
+        audio.srcObject = event.streams[0];
+        audio.autoplay = true;
+        document.body.appendChild(audio);
+    };
+
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            socket.send(JSON.stringify({ candidate: event.candidate }));
+        }
+    };
+
+    let offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    socket.send(JSON.stringify({ offer }));
+}
+
+socket.onmessage = async event => {
+    let data = JSON.parse(event.data);
+
+    if (data.offer) {
+        peerConnection = new RTCPeerConnection(config);
+
+        peerConnection.ontrack = event => {
+            let audio = document.createElement("audio");
+            audio.srcObject = event.streams[0];
+            audio.autoplay = true;
+            document.body.appendChild(audio);
+        };
+
+        peerConnection.onicecandidate = event => {
+            if (event.candidate) {
+                socket.send(JSON.stringify({ candidate: event.candidate }));
+            }
+        };
+
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+
+        await peerConnection.setRemoteDescription(data.offer);
+
+        let answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        socket.send(JSON.stringify({ answer }));
+    }
+
+    if (data.answer) {
+        await peerConnection.setRemoteDescription(data.answer);
+    }
+
+    if (data.candidate) {
+        await peerConnection.addIceCandidate(data.candidate);
+    }
+};
+</script>
+
+</body>
+</html>
